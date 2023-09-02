@@ -1,0 +1,171 @@
+#include "mbed.h"
+#include "QEI.h"
+
+#define MAX(a, b) (a > b ? a : b)
+#define MIN(a, b) (a < b ? a : b)
+
+#define MAXIMUM_BUFFER_SIZE 32
+
+#define PI 3.141592654
+
+const int PS3_DATA_SIZE = 8;
+
+static DigitalOut led1(LED1);
+
+
+
+// 定义ENC1(编码器)
+QEI wheel1(PA_5, PC_9, NC, 400);
+
+// 定义ENC2(编码器)
+QEI wheel2(PA_4, PB_0, NC, 400);
+
+
+// 定义MD1D(马达)
+DigitalOut MD1D(PA_6);
+PwmOut MD1P(PB_6);
+
+// 定义MD2D(马达)
+DigitalOut MD2D(PA_9);
+PwmOut MD2P(PA_8);
+
+// 定义MD3D(马达)
+DigitalOut MD3D(PB_2);
+PwmOut MD3P(PB_1);
+
+// 定义MD4D(马达)
+DigitalOut MD4D(PB_15);
+PwmOut MD4P(PB_14);
+
+double mdp[6];
+int mdd[6];
+void drivemotor(void);
+
+// Create a UnbufferedSerial object with a default baud rate.
+static BufferedSerial serial_port(USBTX, USBRX);
+static BufferedSerial ps3(PC_12, PD_2);
+
+char buf[MAXIMUM_BUFFER_SIZE] = {0};
+char ps3_data[8] = {128, 0, 0, 64, 64, 64, 64, 0};
+int ps3_serial_counter = 0;
+
+int SQUARE, TRIANGLE, CROSS, CIRCLE, UP, DOWN, RIGHT, LEFT, L1, L2, R1, R2,
+    L_JOY_X, L_JOY_Y, R_JOY_X, R_JOY_Y;
+
+Ticker t;
+
+
+
+// 获取遥控器的回调函数
+void get_PS3() {
+  char c;
+  if (ps3.readable()) {
+    ps3.read(&c, sizeof(c));
+    ps3_data[ps3_serial_counter] = c;
+    ps3_serial_counter += 1;
+    if (ps3_serial_counter >= PS3_DATA_SIZE) {
+      ps3_serial_counter = 0;
+
+      SQUARE = ps3_data[1] == 0x01;
+      R1 = ps3_data[1] == 0x08;
+      R2 = ps3_data[1] == 0x10;
+      L1 = ps3_data[1] == 0x02;
+      L2 = ps3_data[1] == 0x04;
+      UP = ps3_data[2] == 0x01;
+      DOWN = ps3_data[2] == 0x02;
+      LEFT = ps3_data[2] == 0x08;
+      RIGHT = ps3_data[2] == 0x04;
+      TRIANGLE = ps3_data[2] == 0x10;
+      CIRCLE = ps3_data[2] == 0x40;
+      CROSS = ps3_data[2] == 0x20;
+      L_JOY_X = MAX(ps3_data[3] - 0x40, -63);
+      L_JOY_Y = MIN((0x7F - ps3_data[4]) - 0x40 + 1, 63);
+      R_JOY_X = MAX(ps3_data[5] - 0x40, -63);
+      R_JOY_Y = MIN((0x7F - ps3_data[6]) - 0x40 + 1, 63);
+
+      // printf("%d %d %d %d\n", L_JOY_X, L_JOY_Y, R_JOY_X, R_JOY_Y);
+    }
+  }
+}
+
+
+// 获取PID的回调函数
+void drivemotor()
+{
+    double md_max = 0.90;
+    mdp[1] = -mdp[1];
+    int l;
+    // l的上限取决于有多少个马达，如果有4个，如下图所示
+    for(l = 1; l <= 4; l++)
+     {
+        if(mdp[l] > md_max)
+        {
+            mdp[l] = md_max;           
+        }
+        else if(mdp[l] < -1.0*md_max)
+        {
+            mdp[l] = -1.0*md_max;
+        }
+        if(mdp[l] >= 0)
+        {
+            mdd[l] = 1.0;
+        }
+        else if(mdp[l] < 0)
+        {
+            mdp[l] = fabs(mdp[l]);
+            mdd[l] = 0;
+        }
+    }
+    MD1P = mdp[1];
+    MD1D = mdd[1];
+    MD2P = mdp[2];
+    MD2D = mdd[2];
+    MD3P = mdp[3];
+    MD3D = mdd[3];
+    MD4P = mdp[4];
+    MD4D = mdd[4]; 
+}
+
+int main(void) {
+
+  // 下面的代码是指定电脑的波特率
+  serial_port.set_baud(115200);
+  serial_port.set_format(
+      /* bits */ 8,
+      /* parity */ BufferedSerial::None,
+      /* stop bit */ 1);
+
+  // 下面的代码是遥控器的波特率
+  ps3.set_baud(2400);
+  ps3.set_format(
+      /* bits */ 8,
+      /* parity */ BufferedSerial::None,
+      /* stop bit */ 1);
+
+  if (UP != 0) {
+    mdp[1] = 1.0;
+    mdp[2] = 1.0;
+  } else if (DOWN != 0) {
+    mdp[1] = -1.0;
+    mdp[2] = -1.0;
+  } else {
+    mdp[1] = 0;
+    mdp[2] = 0;
+  }
+
+  if(LEFT != 0)
+  {
+      mdp[3] = 1.0;
+      mdp[4] = 1.0;
+  }else if(RIGHT != 0)
+  {
+      mdp[3] = -1.0;
+      mdp[4] = -1.0;
+  }else
+  {
+      mdp[3] = 0;
+      mdp[4] = 0;
+  }
+  get_PS3();
+  drivemotor();
+}
